@@ -1,3 +1,4 @@
+############## Begin_Citation [1] ####################
 # License: Apache 2.0. See LICENSE file in root directory.
 # Copyright(c) 2017 Intel Corporation. All Rights Reserved.
 
@@ -101,5 +102,4 @@ try:
             break
 finally:
     pipeline.stop()
-
-# [1] "librealsense/wrappers/python/examples/align-depth2color.py at master · IntelRealSense/librealsense · GitHub", Github, Available: https://github.com/IntelRealSense/librealsense/blob/master/wrappers/python/examples/align-depth2color.py.
+############## End_Citation [1] ####################

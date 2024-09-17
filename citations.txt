@@ -1,0 +1,2 @@
+[1] "librealsense/wrappers/python/examples/align-depth2color.py at master · IntelRealSense/librealsense · GitHub", Github, Available: https://github.com/IntelRealSense/librealsense/blob/master/wrappers/python/examples/align-depth2color.py.
+[2] "argparse — Parser for command-line options, arguments and sub-commands ", Docs, Available: https: // docs.python.org/3/library/argparse.html.

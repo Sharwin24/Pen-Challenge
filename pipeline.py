@@ -101,6 +101,7 @@ class Pipeline():
 
 
 if __name__ == '__main__':
+    ############# Begin_Citation [2] #################
     parser = argparse.ArgumentParser(
         prog="Pen Recognizer",
         description="Process images to recognize a pen")
@@ -109,7 +110,7 @@ if __name__ == '__main__':
         help="record frames to a file")
     parser.add_argument("-f", "--filename", help="File to record to")
     args = parser.parse_args()
-    print(args.filename)
+    ############# End_Citation [2] #################
     pipeline = Pipeline()
     try:
         while True:
