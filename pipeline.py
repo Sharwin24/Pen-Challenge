@@ -6,7 +6,19 @@ import sys
 
 
 class TrackbarSettings():
-    pass
+    def __init__(self, value_name, min_value, max_value, window_name) -> None:
+        self.name = value_name
+        self.low = min_value
+        self.high = max_value
+        self.max_value = max_value
+        self.window_name = window_name
+
+    def handler(self, val):
+        cv2.setTrackbarpos(self.name, self.window_name, val)
+
+    def create(self):
+        cv2.createTrackbar(self.name, self.window_name,
+                           self.min_value, self.max_value, self.handler)
 
 
 class Pipeline():
@@ -115,11 +127,8 @@ if __name__ == '__main__':
     try:
         while True:
             depth_image, color_image = pipeline.get_depth_and_color_images()
-
             bg_removed = pipeline.remove_background(depth_image, color_image)
-
             images = pipeline.render_images(depth_image, bg_removed)
-
             key = pipeline.create_window(images)
             # Press esc or 'q' to close the image window
             if key & 0xFF == ord('q') or key == 27:
