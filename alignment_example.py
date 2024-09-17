@@ -101,3 +101,5 @@ try:
             break
 finally:
     pipeline.stop()
+
+# [1] "librealsense/wrappers/python/examples/align-depth2color.py at master · IntelRealSense/librealsense · GitHub", Github, Available: https://github.com/IntelRealSense/librealsense/blob/master/wrappers/python/examples/align-depth2color.py.

@@ -1,6 +1,8 @@
 import pyrealsense2 as rs
 import numpy as np
 import cv2
+import argparse
+import sys
 
 
 class TrackbarSettings():
@@ -39,7 +41,11 @@ class Pipeline():
         self.depth_scale = depth_sensor.get_depth_scale()
         print(f"Depth Scale: {self.depth_scale}")
         # Default clipping distance to one meter
-        self.clipping_distance = self.set_clipping_distance(clip_dist)
+        self.clipping_distance = clip_dist / self.depth_scale
+
+        # Get intrinsic parameters
+        stream = profile.get_stream(rs.stream.color)
+        self.intr = stream.as_video_stream_profile().get_intrinsics()
 
         # Create an align object
         align_to = rs.stream.color
@@ -51,17 +57,41 @@ class Pipeline():
                 return True
         return False
 
-    def set_clipping_distance(self, distance_meters):
-        self.clipping_distance = distance_meters / self.depth_scale
+    def get_depth_and_color_images(self):
+        frames = self.pipeline.wait_for_frames()
+        # Align the depth frame to the color frame
+        aligned_frames = self.align.process(frames)
 
-    def get_frames(self):
-        return self.pipeline.wait_for_frames()
+        # Get aligned frames
+        aligned_depth_frame = aligned_frames.get_depth_frame()
+        color_frame = aligned_frames.get_color_frame()
+        depth_image = np.asanyarray(aligned_depth_frame.get_data())
+        color_image = np.asanyarray(color_frame.get_data())
+        return depth_image, color_image
 
-    def get_aligned_frames(self, frames):
-        self.align.process(frames)
+    def remove_background(self, depth_image, color_image, bg_color=153):
+        depth_image_3d = np.dstack((depth_image, depth_image, depth_image))
+        bg_removed = np.where((depth_image_3d > self.clipping_distance) |
+                              (depth_image_3d <= 0), bg_color, color_image)
+        return bg_removed
 
-    def record_stream(self):
-        pass
+    def render_images(self, depth_image, bg_removed):
+        depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(
+            depth_image, alpha=0.03), cv2.COLORMAP_JET)
+        images = np.hstack((bg_removed, depth_colormap))
+        return images
+
+    def create_window(self, images):
+        cv2.namedWindow('Align Example', cv2.WINDOW_NORMAL)
+        cv2.imshow('Align Example', images)
+        key = cv2.waitKey(1)
+        return key
+
+    def record(self, file_name):
+        self.config.enable_record_to_file(file_name)
+
+    def play(self, file_name, repeat=True):
+        self.config.enable_device_from_file(file_name, repeat_playback=repeat)
 
     def stop(self):
         self.pipeline.stop()
@@ -70,10 +100,29 @@ class Pipeline():
         pass
 
 
-image_pipeline = Pipeline()
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        prog="Pen Recognizer",
+        description="Process images to recognize a pen")
+    parser.add_argument(
+        "-r", '--record', action='store_true',
+        help="record frames to a file")
+    parser.add_argument("-f", "--filename", help="File to record to")
+    args = parser.parse_args()
+    print(args.filename)
+    pipeline = Pipeline()
+    try:
+        while True:
+            depth_image, color_image = pipeline.get_depth_and_color_images()
 
-try:
-    while True:
-        pass
-finally:
-    image_pipeline.stop()
+            bg_removed = pipeline.remove_background(depth_image, color_image)
+
+            images = pipeline.render_images(depth_image, bg_removed)
+
+            key = pipeline.create_window(images)
+            # Press esc or 'q' to close the image window
+            if key & 0xFF == ord('q') or key == 27:
+                cv2.destroyAllWindows()
+                break
+    finally:
+        pipeline.stop()
