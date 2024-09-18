@@ -6,22 +6,24 @@ import sys
 
 
 class Trackbar():
-    def __init__(self, value_name, min_value, max_value, window_name) -> None:
+    def __init__(self, value_name, max_value, window_name) -> None:
         self.name = value_name
-        self.min_value = min_value
         self.max_value = max_value
         self.window_name = window_name
+        self.value = 0
 
     def create(self):
         cv2.createTrackbar(self.name, self.window_name,
-                           self.min_value, self.max_value, self.handler)
+                           self.value, self.max_value, self.handler)
         print(f"{self.name} Trackbar Created for {self.window_name}")
 
     def handler(self, val):
+        # print(f"Handling {self.name} = {val}")
+        self.value = val
         cv2.setTrackbarPos(self.name, self.window_name, val)
 
     def get(self):
-        cv2.getTrackbarPos(self.name, self.window_name)
+        return cv2.getTrackbarPos(self.name, self.window_name)
 
 
 class Pipeline():
@@ -121,36 +123,63 @@ if __name__ == '__main__':
     args = parser.parse_args()
     ############# End_Citation [2] #################
     print(args)
-    low_hue = Trackbar("Low Hue", 0, 179, "HSV Window")
-    low_saturation = Trackbar("Low Saturation", 0, 255, "HSV Window")
-    low_value = Trackbar("Low Value", 0, 255, "HSV Window")
-    high_hue = Trackbar("High Hue", 0, 179, "HSV Window")
-    high_saturation = Trackbar("High Saturation", 0, 255, "HSV Window")
-    high_value = Trackbar("High Value", 0, 255, "HSV Window")
+    low_hue = Trackbar("Low Hue", 179, "HSV Window")
+    low_saturation = Trackbar("Low Saturation", 255, "HSV Window")
+    low_value = Trackbar("Low Value", 255, "HSV Window")
+    high_hue = Trackbar("High Hue", 179, "HSV Window")
+    high_saturation = Trackbar("High Saturation", 255, "HSV Window")
+    high_value = Trackbar("High Value", 255, "HSV Window")
     trackbars = [low_hue, low_saturation, low_value,
                  high_hue, high_saturation, high_value]
+    cv2.namedWindow("HSV Window", cv2.WINDOW_NORMAL)
+    cv2.namedWindow("BG Removed Window", cv2.WINDOW_NORMAL)
+    cv2.namedWindow("Masked Window", cv2.WINDOW_NORMAL)
+    cv2.namedWindow("Contours Window", cv2.WINDOW_NORMAL)
+    for tb in trackbars:
+        tb.create()
+    tuned_hsv = {'H_Low': 115,
+                 'H_High': 154,
+                 'S_Low': 85,
+                 'S_High': 255,
+                 'V_Low': 60,
+                 'V_High': 255}
     pipeline = Pipeline()
     try:
         while True:
             depth_image, color_image = pipeline.get_depth_and_color_images()
             ############# Begin_Citation [3] #################
             # Convert color image to HSV image and show in new window
-
-            cv2.namedWindow("HSV Window", cv2.WINDOW_NORMAL)
-            for tb in trackbars:
-                tb.create()
             hsv_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV)
-            mask = cv2.inRange(
+            test_hsv_mask = cv2.inRange(
                 hsv_image,
                 (low_hue.get(), low_saturation.get(), low_value.get()),
                 (high_hue.get(), high_saturation.get(), high_value.get()),
             )
-            cv2.imshow("HSV Window", mask)
-            key = cv2.waitKey(1)
+            tuned_hsv_mask = cv2.inRange(
+                hsv_image,
+                (tuned_hsv["H_Low"], tuned_hsv['S_Low'], tuned_hsv['V_Low']),
+                (tuned_hsv["H_High"], tuned_hsv['S_High'],
+                 tuned_hsv['V_High']),
+            )
             ############# End_Citation [3] #################
-            # bg_removed = pipeline.remove_background(depth_image, color_image)
-            # images = pipeline.render_depth_image(depth_image, bg_removed)
-            # key = pipeline.create_window(images)
+            cv2.imshow("HSV Window", tuned_hsv_mask)
+            # Cut off the pixels after a certain depth in the color image
+            bg_removed = pipeline.remove_background(depth_image, color_image)
+            cv2.imshow("BG Removed Window", bg_removed)
+            ############# Begin_Citation [4] #################
+            masked_without_bg = cv2.bitwise_and(
+                bg_removed, color_image, mask=tuned_hsv_mask)
+            ############# End_Citation [4] #################
+            cv2.imshow("Masked Window", masked_without_bg)
+            # Now draw contours on the image and (hopefully) around the pen
+            grayscale = cv2.cvtColor(masked_without_bg, cv2.COLOR_BGR2GRAY)
+            edged = cv2.Canny(grayscale, 30, 200)
+            cv2.waitKey(0)
+            contours, hierarchy = cv2.findContours(
+                edged, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+            cv2.imshow("Contours Window", edged)
+            cv2.drawContours(masked_without_bg, contours, -1, (0, 255, 0), 3)
+            key = cv2.waitKey(1)
             # Press esc or 'q' to close the image window
             if key & 0xFF == ord('q') or key == 27:
                 cv2.destroyAllWindows()
