@@ -40,7 +40,7 @@ class Pipeline():
             exit(0)
 
         # Enable depth and color streams
-        size = (640, 480)  # Get from device type??
+        size = (640, 480)  # (1280, 720)  # Get from device type??
         self.config.enable_stream(
             rs.stream.depth,
             size[0],
@@ -82,6 +82,7 @@ class Pipeline():
         # Get aligned frames
         aligned_depth_frame = aligned_frames.get_depth_frame()
         color_frame = aligned_frames.get_color_frame()
+        self.df = aligned_depth_frame
         depth_image = np.asanyarray(aligned_depth_frame.get_data())
         color_image = np.asanyarray(color_frame.get_data())
         return depth_image, color_image
@@ -107,8 +108,13 @@ class Pipeline():
     def stop(self):
         self.pipeline.stop()
 
-    def pipe(self):
-        pass
+    def get_centroid_pos(self, center):
+        if center != None:
+            dist_meters = self.df.get_distance(center[0], center[1])
+            centroid_pos = rs.rs2_deproject_pixel_to_point(
+                self.intr, center, dist_meters)
+            return centroid_pos
+        return None
 
 
 if __name__ == '__main__':
@@ -139,6 +145,7 @@ if __name__ == '__main__':
     high_value = Trackbar("High Value", 255, "HSV Window", tuned_hsv["V_High"])
     trackbars = [low_hue, low_saturation, low_value,
                  high_hue, high_saturation, high_value]
+    cv2.namedWindow("Smoothed Image Window", cv2.WINDOW_NORMAL)
     cv2.namedWindow("HSV Window", cv2.WINDOW_NORMAL)
     cv2.namedWindow("BG Removed Window", cv2.WINDOW_NORMAL)
     cv2.namedWindow("Masked Window", cv2.WINDOW_NORMAL)
@@ -151,9 +158,12 @@ if __name__ == '__main__':
     try:
         while True:
             depth_image, color_image = pipeline.get_depth_and_color_images()
+            # Apply bilateral filter to color image to smooth
+            smooth = cv2.bilateralFilter(color_image, 15, 75, 75)
+            cv2.imshow("Smoothed Image Window", smooth)
             ############# Begin_Citation [3] #################
             # Convert color image to HSV image and show in new window
-            hsv_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV)
+            hsv_image = cv2.cvtColor(smooth, cv2.COLOR_BGR2HSV)
             test_hsv_mask = cv2.inRange(
                 hsv_image,
                 (low_hue.get(), low_saturation.get(), low_value.get()),
@@ -168,36 +178,41 @@ if __name__ == '__main__':
             ############# End_Citation [3] #################
             cv2.imshow("HSV Window", test_hsv_mask)
             # Cut off the pixels after a certain depth in the color image
-            bg_removed = pipeline.remove_background(depth_image, color_image)
+            bg_removed = pipeline.remove_background(depth_image, smooth)
             cv2.imshow("BG Removed Window", bg_removed)
             ############# Begin_Citation [4] #################
             masked_without_bg = cv2.bitwise_and(
-                bg_removed, color_image, mask=test_hsv_mask)
+                bg_removed, smooth, mask=test_hsv_mask)
+            masked_with_bg = cv2.bitwise_and(
+                smooth, smooth, mask=test_hsv_mask)
             ############# End_Citation [4] #################
-            cv2.imshow("Masked Window", masked_without_bg)
+            cv2.imshow("Masked Window", masked_with_bg)
             # Now draw contours on the image and (hopefully) around the pen
             ############# Begin_Citation [7] #################
-            grayscale = cv2.cvtColor(masked_without_bg, cv2.COLOR_BGR2GRAY)
+            grayscale = cv2.cvtColor(masked_with_bg, cv2.COLOR_BGR2GRAY)
             edged = cv2.Canny(grayscale, 30, 200)
             contours, hierarchy = cv2.findContours(
                 edged, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
             cv2.imshow("Contours Window", edged)
-            cv2.drawContours(masked_without_bg, contours, -1, (0, 255, 0), 3)
+            cv2.drawContours(masked_with_bg, contours, -1, (0, 255, 0), 3)
             # Find the contour with the largest area
             center = None
             if len(contours) != 0:
                 largest_contour = max(contours, key=cv2.contourArea)
                 x, y, w, h = cv2.boundingRect(largest_contour)
-                cv2.rectangle(masked_without_bg, (x, y),
+                cv2.rectangle(masked_with_bg, (x, y),
                               (x + w, y + h), (0, 255, 0), 2)
                 center = (x + w // 2, y + h // 2)
             ############# End_Citation [7] #################
-            cv2.imshow("Pen Contour Window", masked_without_bg)
+            cv2.imshow("Pen Contour Window", masked_with_bg)
             if center != None:
                 ############# Begin_Citation [8] #################
-                cv2.circle(bg_removed, center, 6, (0, 0, 255), -1)
+                cv2.circle(smooth, center, 6, (0, 0, 255), -1)
                 ############# End_Citation [8] ##################
-                cv2.imshow("Centroid Window", bg_removed)
+                cv2.imshow("Centroid Window", smooth)
+                pen_pos = pipeline.get_centroid_pos(center)
+                if pen_pos != None:
+                    print(f"Pen Position {pen_pos} m")
             key = cv2.waitKey(1)
             # Press esc or 'q' to close the image window
             if key & 0xFF == ord('q') or key == 27:
