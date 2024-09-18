@@ -6,11 +6,11 @@ import sys
 
 
 class Trackbar():
-    def __init__(self, value_name, max_value, window_name) -> None:
+    def __init__(self, value_name, max_value, window_name, default=0) -> None:
         self.name = value_name
         self.max_value = max_value
         self.window_name = window_name
-        self.value = 0
+        self.value = default
 
     def create(self):
         cv2.createTrackbar(self.name, self.window_name,
@@ -123,26 +123,30 @@ if __name__ == '__main__':
     args = parser.parse_args()
     ############# End_Citation [2] #################
     print(args)
-    low_hue = Trackbar("Low Hue", 179, "HSV Window")
-    low_saturation = Trackbar("Low Saturation", 255, "HSV Window")
-    low_value = Trackbar("Low Value", 255, "HSV Window")
-    high_hue = Trackbar("High Hue", 179, "HSV Window")
-    high_saturation = Trackbar("High Saturation", 255, "HSV Window")
-    high_value = Trackbar("High Value", 255, "HSV Window")
-    trackbars = [low_hue, low_saturation, low_value,
-                 high_hue, high_saturation, high_value]
-    cv2.namedWindow("HSV Window", cv2.WINDOW_NORMAL)
-    cv2.namedWindow("BG Removed Window", cv2.WINDOW_NORMAL)
-    cv2.namedWindow("Masked Window", cv2.WINDOW_NORMAL)
-    cv2.namedWindow("Contours Window", cv2.WINDOW_NORMAL)
-    for tb in trackbars:
-        tb.create()
     tuned_hsv = {'H_Low': 115,
                  'H_High': 154,
                  'S_Low': 85,
                  'S_High': 255,
                  'V_Low': 60,
                  'V_High': 255}
+    low_hue = Trackbar("Low Hue", 179, "HSV Window", tuned_hsv["H_Low"])
+    low_saturation = Trackbar("Low Saturation", 255,
+                              "HSV Window", tuned_hsv["S_Low"])
+    low_value = Trackbar("Low Value", 255, "HSV Window", tuned_hsv["V_Low"])
+    high_hue = Trackbar("High Hue", 179, "HSV Window", tuned_hsv["H_High"])
+    high_saturation = Trackbar(
+        "High Saturation", 255, "HSV Window", tuned_hsv["S_High"])
+    high_value = Trackbar("High Value", 255, "HSV Window", tuned_hsv["V_High"])
+    trackbars = [low_hue, low_saturation, low_value,
+                 high_hue, high_saturation, high_value]
+    cv2.namedWindow("HSV Window", cv2.WINDOW_NORMAL)
+    cv2.namedWindow("BG Removed Window", cv2.WINDOW_NORMAL)
+    cv2.namedWindow("Masked Window", cv2.WINDOW_NORMAL)
+    cv2.namedWindow("Contours Window", cv2.WINDOW_NORMAL)
+    cv2.namedWindow("Pen Contour Window", cv2.WINDOW_NORMAL)
+    cv2.namedWindow("Centroid Window", cv2.WINDOW_NORMAL)
+    for tb in trackbars:
+        tb.create()
     pipeline = Pipeline()
     try:
         while True:
@@ -162,23 +166,38 @@ if __name__ == '__main__':
                  tuned_hsv['V_High']),
             )
             ############# End_Citation [3] #################
-            cv2.imshow("HSV Window", tuned_hsv_mask)
+            cv2.imshow("HSV Window", test_hsv_mask)
             # Cut off the pixels after a certain depth in the color image
             bg_removed = pipeline.remove_background(depth_image, color_image)
             cv2.imshow("BG Removed Window", bg_removed)
             ############# Begin_Citation [4] #################
             masked_without_bg = cv2.bitwise_and(
-                bg_removed, color_image, mask=tuned_hsv_mask)
+                bg_removed, color_image, mask=test_hsv_mask)
             ############# End_Citation [4] #################
             cv2.imshow("Masked Window", masked_without_bg)
             # Now draw contours on the image and (hopefully) around the pen
+            ############# Begin_Citation [7] #################
             grayscale = cv2.cvtColor(masked_without_bg, cv2.COLOR_BGR2GRAY)
             edged = cv2.Canny(grayscale, 30, 200)
-            cv2.waitKey(0)
             contours, hierarchy = cv2.findContours(
                 edged, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
             cv2.imshow("Contours Window", edged)
             cv2.drawContours(masked_without_bg, contours, -1, (0, 255, 0), 3)
+            # Find the contour with the largest area
+            center = None
+            if len(contours) != 0:
+                largest_contour = max(contours, key=cv2.contourArea)
+                x, y, w, h = cv2.boundingRect(largest_contour)
+                cv2.rectangle(masked_without_bg, (x, y),
+                              (x + w, y + h), (0, 255, 0), 2)
+                center = (x + w // 2, y + h // 2)
+            ############# End_Citation [7] #################
+            cv2.imshow("Pen Contour Window", masked_without_bg)
+            if center != None:
+                ############# Begin_Citation [8] #################
+                cv2.circle(bg_removed, center, 6, (0, 0, 255), -1)
+                ############# End_Citation [8] ##################
+                cv2.imshow("Centroid Window", bg_removed)
             key = cv2.waitKey(1)
             # Press esc or 'q' to close the image window
             if key & 0xFF == ord('q') or key == 27:

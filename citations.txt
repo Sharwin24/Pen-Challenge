@@ -4,3 +4,5 @@
 [4] "OpenCV: Arithmetic Operations on Images", Docs, Available: https://docs.opencv.org/4.x/d0/d86/tutorial_py_image_arithmetics.html. [Accessed 18 September. 2024].
 [5] "OpenCV: Contours : Getting Started", Docs, Available: https://docs.opencv.org/4.6.0/d4/d73/tutorial_py_contours_begin.html. [Accessed 18 September. 2024].
 [6] "OpenCV: Drawing Functions", Docs, Available: https://docs.opencv.org/4.6.0/d6/d6e/group__imgproc__draw.html#ga746c0625f1781f1ffc9056259103edbc. [Accessed 18 September. 2024].
+[7] "OpenCV: Drawing Functions", Docs, 16 Jun. 2017. Available: https://docs.opencv.org/4.6.0/d6/d6e/group__imgproc__draw.html#stackoverflow.com/questions/44588279/find-and-draw-the-largest-contour-in-opencv-on-a-specific-color-python. [Accessed 18 September. 2024].
+[8]"OpenCV: Drawing Functions", Docs, Available: https://docs.opencv.org/4.x/d6/d6e/group__imgproc__draw.html#gaf10604b069374903dbd0f0488cb43670. [Accessed 18 September. 2024].
