@@ -5,20 +5,23 @@ import argparse
 import sys
 
 
-class TrackbarSettings():
+class Trackbar():
     def __init__(self, value_name, min_value, max_value, window_name) -> None:
         self.name = value_name
-        self.low = min_value
-        self.high = max_value
+        self.min_value = min_value
         self.max_value = max_value
         self.window_name = window_name
-
-    def handler(self, val):
-        cv2.setTrackbarpos(self.name, self.window_name, val)
 
     def create(self):
         cv2.createTrackbar(self.name, self.window_name,
                            self.min_value, self.max_value, self.handler)
+        print(f"{self.name} Trackbar Created for {self.window_name}")
+
+    def handler(self, val):
+        cv2.setTrackbarPos(self.name, self.window_name, val)
+
+    def get(self):
+        cv2.getTrackbarPos(self.name, self.window_name)
 
 
 class Pipeline():
@@ -87,17 +90,11 @@ class Pipeline():
                               (depth_image_3d <= 0), bg_color, color_image)
         return bg_removed
 
-    def render_images(self, depth_image, bg_removed):
+    def render_depth_image(self, depth_image, bg_removed):
         depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(
             depth_image, alpha=0.03), cv2.COLORMAP_JET)
-        images = np.hstack((bg_removed, depth_colormap))
-        return images
-
-    def create_window(self, images):
-        cv2.namedWindow('Align Example', cv2.WINDOW_NORMAL)
-        cv2.imshow('Align Example', images)
-        key = cv2.waitKey(1)
-        return key
+        image = np.hstack((bg_removed, depth_colormap))
+        return image
 
     def record(self, file_name):
         self.config.enable_record_to_file(file_name)
@@ -123,13 +120,37 @@ if __name__ == '__main__':
     parser.add_argument("-f", "--filename", help="File to record to")
     args = parser.parse_args()
     ############# End_Citation [2] #################
+    print(args)
+    low_hue = Trackbar("Low Hue", 0, 179, "HSV Window")
+    low_saturation = Trackbar("Low Saturation", 0, 255, "HSV Window")
+    low_value = Trackbar("Low Value", 0, 255, "HSV Window")
+    high_hue = Trackbar("High Hue", 0, 179, "HSV Window")
+    high_saturation = Trackbar("High Saturation", 0, 255, "HSV Window")
+    high_value = Trackbar("High Value", 0, 255, "HSV Window")
+    trackbars = [low_hue, low_saturation, low_value,
+                 high_hue, high_saturation, high_value]
     pipeline = Pipeline()
     try:
         while True:
             depth_image, color_image = pipeline.get_depth_and_color_images()
-            bg_removed = pipeline.remove_background(depth_image, color_image)
-            images = pipeline.render_images(depth_image, bg_removed)
-            key = pipeline.create_window(images)
+            ############# Begin_Citation [3] #################
+            # Convert color image to HSV image and show in new window
+
+            cv2.namedWindow("HSV Window", cv2.WINDOW_NORMAL)
+            for tb in trackbars:
+                tb.create()
+            hsv_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV)
+            mask = cv2.inRange(
+                hsv_image,
+                (low_hue.get(), low_saturation.get(), low_value.get()),
+                (high_hue.get(), high_saturation.get(), high_value.get()),
+            )
+            cv2.imshow("HSV Window", mask)
+            key = cv2.waitKey(1)
+            ############# End_Citation [3] #################
+            # bg_removed = pipeline.remove_background(depth_image, color_image)
+            # images = pipeline.render_depth_image(depth_image, bg_removed)
+            # key = pipeline.create_window(images)
             # Press esc or 'q' to close the image window
             if key & 0xFF == ord('q') or key == 27:
                 cv2.destroyAllWindows()
