@@ -40,7 +40,7 @@ class Pipeline():
             exit(0)
 
         # Enable depth and color streams
-        size = (640, 480)  # (1280, 720)  # Get from device type??
+        size = (1280, 720)  # (640, 480)  # Get from device type??
         self.config.enable_stream(
             rs.stream.depth,
             size[0],
