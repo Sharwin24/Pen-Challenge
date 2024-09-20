@@ -56,7 +56,7 @@ class Pipeline():
         profile = self.pipeline.start(self.config)
         depth_sensor = profile.get_device().first_depth_sensor()
         self.depth_scale = depth_sensor.get_depth_scale()
-        print(f"Depth Scale: {self.depth_scale}")
+        # print(f"Depth Scale: {self.depth_scale}")
         # Default clipping distance to one meter
         self.clipping_distance = clip_dist / self.depth_scale
 
@@ -163,7 +163,7 @@ class Pipeline():
                 cv2.imshow("Centroid Window", smooth)
             pen_pos = self.get_centroid_pos(center)
             if pen_pos != None:
-                print(f"Pen Position {pen_pos} m")
+                # print(f"Pen Position {pen_pos} m")
                 self.save_pen_position(pen_pos)
         if self.windows_opened:
             key = cv2.waitKey(1)

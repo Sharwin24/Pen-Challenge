@@ -16,20 +16,20 @@ def calibration_sequence(robot: Controller, camera: Pipeline):
         robot.move_to_point(p)
         camera.run_image_pipeline()
         camera_points.append(camera.get_pen_pos())
-        print(f"Robot {p}\tCamera {camera_points[-1]}")
+        print(f"Robot {p}\tCamera " +
+              f"({camera_points[-1][0]:.2f}, {camera_points[-1][1]:.2f}, {camera_points[-1][2]:.2f})")
         time.sleep(2)
     robot.cb.compute_calibration_parameters(robot_points, camera_points)
     robot.cb.save("calibration.pkl")
+    robot.cb.plot_points(robot_points, camera_points)
 
 
 def cleanup():
-    robot.sleep()
     robot.shutdown()
     camera.stop()
 
 
 if __name__ == '__main__':
-    # Create objects
     robot = Controller()
     camera = Pipeline()
     robot.home()
@@ -39,4 +39,4 @@ if __name__ == '__main__':
         calibration_sequence(robot, camera)
     else:
         robot.start()
-    cleanup()
+        cleanup()

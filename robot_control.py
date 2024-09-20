@@ -6,6 +6,7 @@ from enum import Enum
 import modern_robotics as mr
 import numpy as np
 import pickle
+import matplotlib.pyplot as plt
 import os
 
 import scipy.spatial.transform as tr
@@ -93,25 +94,34 @@ class Calibrator:
             sum([p[1] for p in camera_points]) / len(camera_points),
             sum([p[2] for p in camera_points]) / len(camera_points)
         )
-        print(f"R_c {robot_centroid}\nC_c {camera_centroid}")
         subtracted_robot_centroids = [
             (robot_centroid[0] - p[0], robot_centroid[1] - p[1], robot_centroid[2] - p[2]) for p in robot_points]
         subtracted_camera_centroids = [
             (camera_centroid[0] - p[0], camera_centroid[1] - p[1], camera_centroid[2] - p[2]) for p in camera_points]
-        print(f"R_sc {subtracted_robot_centroids}\nC_sc" +
-              f"{subtracted_camera_centroids}")
         R = tr.Rotation.align_vectors(
             subtracted_robot_centroids, subtracted_camera_centroids)
         rotated_camera = np.array(R[0].as_matrix()) @ np.array(camera_centroid)
-        print(f"R @ C_c = {rotated_camera}")
         t = np.subtract(np.array(robot_centroid), rotated_camera)
-        print(f"Translation = {t}")
-        # t = np.subtract(np.array(robot_centroid),
-        #                 np.matmul(np.array(camera_centroid), R))
-        # t = (robot_centroid[0] - (R * camera_centroid[0]),
-        #      robot_centroid[1] - (R * camera_centroid[1]),
-        #      robot_centroid[2] - (R * camera_centroid[2]))
         self.params = [R, t]
+
+    def plot_points(self, robot_points, camera_points):
+        robot_x = [rp[0] for rp in robot_points]
+        robot_y = [rp[1] for rp in robot_points]
+        camera_x = [cp[0] for cp in camera_points]
+        camera_y = [cp[1] for cp in camera_points]
+        rotated_x = []
+        rotated_y = []
+        # Robot = R * Camera + t
+        R = self.params[0][0].as_matrix()
+        for p in camera_points:
+            new_robot_point = np.add(
+                np.array(R) @ np.array(p), self.params[1])
+            rotated_x.append(new_robot_point[0])
+            rotated_y.append(new_robot_point[1])
+        plt.plot(robot_x, robot_y, color='red')
+        plt.plot(camera_x, camera_y, color='green')
+        plt.plot(rotated_x, rotated_y, color='blue')
+        plt.show()
 
 
 class Controller:
