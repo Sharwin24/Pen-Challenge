@@ -8,6 +8,8 @@ import numpy as np
 import pickle
 import os
 
+import scipy.spatial.transform as tr
+
 
 def example_code():
 
@@ -37,7 +39,7 @@ class DIRECTION(Enum):
 class Calibrator:
     def __init__(self, file_name=None) -> None:
         self.points = []
-        self.params = {}
+        self.params = []
         if file_name != None:
             self.load(file_name)
 
@@ -51,14 +53,19 @@ class Calibrator:
         return self.points
 
     ############# Begin_Citation [9] #############
-    def save(self, file_name):
+    def save(self, file_name, points=None, params=None):
         # Write to a file
         if os.path.exists(file_name):
             # If the file exists, clear the data
             print(f"{file_name} already exists, overwriting!")
             os.remove(file_name)
-        with open(file_name, 'w') as f:
+        if points == None:
+            points = self.points
+        if params == None:
+            params = self.params
+        with open(file_name, 'wb') as f:
             pickle.dump([self.points, self.params], f)
+        print(f"Saved {self.points}\n{self.params}")
 
     def load(self, file_name):
         # If file exists, load it
@@ -68,6 +75,43 @@ class Calibrator:
         else:
             print(f"{file_name} does not exist")
     ############# End_Citation [9] #############
+
+    def compute_calibration_parameters(self, robot_points: list, camera_points: list):
+        # The passed in points are the list of points (x,y,z) m in the robot and camera frame, respectively
+        # Compute the centroid of the points
+        # Get the subtracted centroid where each point in the list subtracts the centroid
+        # Then figure out the rotation between the subtracted centroids of each frame
+        # Find the translation using the rotation matrix and known points (centroids)
+        # Store all params in a tuple (R, t)
+        robot_centroid = (
+            sum([p[0] for p in robot_points]) / len(robot_points),
+            sum([p[1] for p in robot_points]) / len(robot_points),
+            sum([p[2] for p in robot_points]) / len(robot_points)
+        )
+        camera_centroid = (
+            sum([p[0] for p in camera_points]) / len(camera_points),
+            sum([p[1] for p in camera_points]) / len(camera_points),
+            sum([p[2] for p in camera_points]) / len(camera_points)
+        )
+        print(f"R_c {robot_centroid}\nC_c {camera_centroid}")
+        subtracted_robot_centroids = [
+            (robot_centroid[0] - p[0], robot_centroid[1] - p[1], robot_centroid[2] - p[2]) for p in robot_points]
+        subtracted_camera_centroids = [
+            (camera_centroid[0] - p[0], camera_centroid[1] - p[1], camera_centroid[2] - p[2]) for p in camera_points]
+        print(f"R_sc {subtracted_robot_centroids}\nC_sc" +
+              f"{subtracted_camera_centroids}")
+        R = tr.Rotation.align_vectors(
+            subtracted_robot_centroids, subtracted_camera_centroids)
+        rotated_camera = np.array(R[0].as_matrix()) @ np.array(camera_centroid)
+        print(f"R @ C_c = {rotated_camera}")
+        t = np.subtract(np.array(robot_centroid), rotated_camera)
+        print(f"Translation = {t}")
+        # t = np.subtract(np.array(robot_centroid),
+        #                 np.matmul(np.array(camera_centroid), R))
+        # t = (robot_centroid[0] - (R * camera_centroid[0]),
+        #      robot_centroid[1] - (R * camera_centroid[1]),
+        #      robot_centroid[2] - (R * camera_centroid[2]))
+        self.params = [R, t]
 
 
 class Controller:
@@ -79,8 +123,20 @@ class Controller:
         self.joint_dict = {}
         self.update_joint_angle_dict()
         self.step_size = 5 / 100  # default is 5 cm, convert to meters
-        self.calibrator = Calibrator()
-        self.calibration_points = []
+        self.cb = Calibrator()
+        self.visited_points = []
+
+    def home(self):
+        self.robot.arm.go_to_home_pose()
+
+    def sleep(self):
+        self.robot.arm.go_to_sleep_pose()
+
+    def start(self):
+        continueControl = True
+        while continueControl:
+            continueControl = self.parse_inputs()
+        self.shutdown()
 
     def update_joint_angle_dict(self):
         angles = self.robot.arm.get_joint_commands()
@@ -136,23 +192,7 @@ class Controller:
         elif cmd == 'c' or cmd == 'calibrate':
             self.calibrate()
         elif cmd == 'v' or cmd == 'visiting':
-            # Visit points and if saving is desired, allow the user to save it
-            visiting = True
-            while visiting:
-                point = input(
-                    f"Please input an absolute point [cm] as a tuple of (x,y,z): ")
-                point_tuple = point.replace(
-                    "(", "").replace(")", "").split(",")
-                point_tuple = [float(p) / 100 for p in point_tuple]
-                self.move_to_point(point_tuple)
-                save = input(
-                    f"Save this point to calibration_sequence? {point_tuple} [y,n]: ").lower()
-                if save == 'y':
-                    print(f"Saving {point_tuple}")
-                    self.calibration_points.append(point_tuple)
-                visiting = input("Continue? [y,n]: ").lower() == 'y'
-                if not visiting:
-                    print(f"Calibration Path: {self.calibration_points}")
+            self.visiting()
         elif cmd == 're' or cmd == 'release':
             self.open_gripper()
         elif cmd == 'g' or cmd == 'grasp':
@@ -195,12 +235,31 @@ class Controller:
 
     def move_to_point(self, point):
         self.robot.arm.set_ee_pose_components(
-            x=point[0], y=point[1], z=point[2])
+            x=point[0], y=point[1], z=point[2], moving_time=1)
 
     def forward_kinematics(self, joint_positions):
         T = mr.FKinSpace(self.robot.arm.robot_des.M,
                          self.robot.arm.robot_des.Slist, joint_positions)
         return mr.TransToRp(T)  # [R, p]
+
+    def visiting(self):
+        # Visit points and if saving is desired, allow the user to save it
+        visiting = True
+        while visiting:
+            point = input(
+                f"Please input an absolute point [cm] as a tuple of (x,y,z): ")
+            point_tuple = point.replace(
+                "(", "").replace(")", "").split(",")
+            point_tuple = [float(p) / 100 for p in point_tuple]
+            self.move_to_point(point_tuple)
+            save = input(
+                f"Save this point to calibration_sequence? {point_tuple} [y,n]: ").lower()
+            if save == 'y':
+                print(f"Saving {point_tuple}")
+                self.visited_points.append(point_tuple)
+            visiting = input("Continue? [y,n]: ").lower() == 'y'
+            if not visiting:
+                print(f"Calibration Path: {self.visited_points}")
 
     def calibrate(self):
         # Calibration Procedure
@@ -216,29 +275,27 @@ class Controller:
             _ = input(f"Press enter to grab the pen")
             self.robot.gripper.grasp()
         calib_file = input(
-            "Enter the file name (*.pkl) for the calibration points to load from\nIf it doesn't exist it will be created at the end of the calibration sequence: ")
-        self.calibrator.load(calib_file)
-        points_to_visit = self.calibrator.get_points()
-        if len(points_to_visit) == 0 and len(self.calibration_points) != 0:
+            "Enter the file name for the calibration points to load from\nIf it doesn't exist it will be ignored: ")
+        self.cb.load(calib_file)
+        points_to_visit = self.cb.get_points()
+        if len(points_to_visit) == 0 and len(self.visited_points) != 0:
             # If no points were loaded, and visiting loop was run, use those points
             print(f"Loading points from visiting loop:" +
-                  f"\n{self.calibration_points}")
-            points_to_visit.extend(self.calibration_points)
-        elif len(points_to_visit) == 0 and len(self.calibration_points) == 0:
+                  f"\n{self.visited_points}")
+            points_to_visit.extend(self.visited_points)
+        elif len(points_to_visit) == 0 and len(self.visited_points) == 0:
             # If no points at all were provided, use hardcoded points
             hardcoded_points = [
                 (0.1345, 0.0735, 0.1359),  # home, back 10cm, rotate 30 deg
-                (0.1345, 0.0-735, 0.1359),  # home, back 10cm, rotate -30 deg
+                (0.1345, -0.0735, 0.1359),  # home, back 10cm, rotate -30 deg
                 (0.25, 0, 0.1714),  # home
                 (0.25, 0, 0.1074),  # home, down
+                (0.25, 0, 0.19),  # home, up
+
             ]  # m
             points_to_visit.extend(hardcoded_points)
-        print(f"Points to visit:\n{points_to_visit}")
-        params = self.compute_calibration_parameters(points_to_visit)
-
-    def compute_calibration_parameters(self, robot_points, camera_points):
-        # The passed in points are the list of points (x,y,z) m in the robot and camera frame, respectively
-        pass
+        print(f"Saved Calibration Route => {points_to_visit}")
+        return points_to_visit
 
     def shutdown(self):
         robot_shutdown()
@@ -246,7 +303,4 @@ class Controller:
 
 if __name__ == '__main__':
     controller = Controller()
-    continueControl = True
-    while continueControl:
-        continueControl = controller.parse_inputs()
-    controller.shutdown()
+    controller.start()

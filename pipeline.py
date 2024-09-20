@@ -67,6 +67,142 @@ class Pipeline():
         # Create an align object
         align_to = rs.stream.color
         self.align = rs.align(align_to)
+        self.tuned_hsv = {'H_Low': 115,
+                          'H_High': 154,
+                          'S_Low': 117,
+                          'S_High': 255,
+                          'V_Low': 60,
+                          'V_High': 255}
+        self.pen_pos = None
+        self.windows_opened = False
+
+    def start(self):
+        self.create_windows_and_trackbars()
+        continue_pipeline = True
+        while continue_pipeline:
+            continue_pipeline = self.run_image_pipeline()
+        self.stop()
+
+    def stop(self):
+        self.pipeline.stop()
+
+    def save_pen_position(self, pen_pos):
+        self.pen_pos = pen_pos
+
+    def get_pen_pos(self):
+        return self.pen_pos
+
+    def run_image_pipeline(self):
+        # Get depth and color images
+        depth_image, color_image = self.get_depth_and_color_images()
+        # Apply bilateral filter to color image to smooth
+        smooth = cv2.bilateralFilter(color_image, 15, 75, 75)
+        if self.windows_opened:
+            cv2.imshow("Smoothed Image Window", smooth)
+        ############# Begin_Citation [3] #################
+        # Convert color image to HSV image and show in new window
+        hsv_image = cv2.cvtColor(smooth, cv2.COLOR_BGR2HSV)
+        if self.windows_opened:
+            test_hsv_mask = cv2.inRange(
+                hsv_image,
+                (self.low_hue.get(), self.low_saturation.get(), self.low_value.get()),
+                (self.high_hue.get(), self.high_saturation.get(), self.high_value.get()),
+            )
+            enabled_hsv_mask = test_hsv_mask
+        else:
+            tuned_hsv_mask = cv2.inRange(
+                hsv_image,
+                (self.tuned_hsv["H_Low"],
+                 self.tuned_hsv['S_Low'],
+                 self.tuned_hsv['V_Low']),
+                (self.tuned_hsv["H_High"],
+                 self.tuned_hsv['S_High'],
+                 self.tuned_hsv['V_High']),
+            )
+            enabled_hsv_mask = tuned_hsv_mask
+
+        ############# End_Citation [3] #################
+        if self.windows_opened:
+            cv2.imshow("HSV Window", test_hsv_mask)
+        # Cut off the pixels after a certain depth in the color image
+        bg_removed = self.remove_background(depth_image, smooth)
+        if self.windows_opened:
+            cv2.imshow("BG Removed Window", bg_removed)
+        ############# Begin_Citation [4] #################
+        masked_without_bg = cv2.bitwise_and(
+            bg_removed, smooth, mask=enabled_hsv_mask)
+        masked_with_bg = cv2.bitwise_and(smooth, smooth, mask=enabled_hsv_mask)
+        ############# End_Citation [4] #################
+        if self.windows_opened:
+            cv2.imshow("Masked Window", masked_with_bg)
+        # Now draw contours on the image and (hopefully) around the pen
+        ############# Begin_Citation [7] #################
+        grayscale = cv2.cvtColor(masked_with_bg, cv2.COLOR_BGR2GRAY)
+        edged = cv2.Canny(grayscale, 30, 200)
+        contours, hierarchy = cv2.findContours(
+            edged, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        if self.windows_opened:
+            cv2.imshow("Contours Window", edged)
+        cv2.drawContours(masked_with_bg, contours, -1, (0, 255, 0), 3)
+        # Find the contour with the largest area
+        center = None
+        if len(contours) != 0:
+            largest_contour = max(contours, key=cv2.contourArea)
+            x, y, w, h = cv2.boundingRect(largest_contour)
+            cv2.rectangle(masked_with_bg, (x, y),
+                          (x + w, y + h), (0, 255, 0), 2)
+            center = (x + w // 2, y + h // 2)
+            ############# End_Citation [7] #################
+        if self.windows_opened:
+            cv2.imshow("Pen Contour Window", masked_with_bg)
+        if center != None:
+            ############# Begin_Citation [8] #################
+            cv2.circle(smooth, center, 6, (0, 0, 255), -1)
+            ############# End_Citation [8] ##################
+            if self.windows_opened:
+                cv2.imshow("Centroid Window", smooth)
+            pen_pos = self.get_centroid_pos(center)
+            if pen_pos != None:
+                print(f"Pen Position {pen_pos} m")
+                self.save_pen_position(pen_pos)
+        if self.windows_opened:
+            key = cv2.waitKey(1)
+        else:
+            return True
+        # Press esc or 'q' to close the image window
+        if key & 0xFF == ord('q') or key == 27:
+            cv2.destroyAllWindows()
+            return False
+        else:
+            return True
+
+    def create_windows_and_trackbars(self, tuned_hsv=None):
+        if tuned_hsv == None:
+            tuned_hsv = self.tuned_hsv
+        self.low_hue = Trackbar(
+            "Low Hue", 179, "HSV Window", tuned_hsv["H_Low"])
+        self.low_saturation = Trackbar(
+            "Low Saturation", 255, "HSV Window", tuned_hsv["S_Low"])
+        self.low_value = Trackbar(
+            "Low Value", 255, "HSV Window", tuned_hsv["V_Low"])
+        self.high_hue = Trackbar(
+            "High Hue", 179, "HSV Window", tuned_hsv["H_High"])
+        self.high_saturation = Trackbar(
+            "High Saturation", 255, "HSV Window", tuned_hsv["S_High"])
+        self.high_value = Trackbar(
+            "High Value", 255, "HSV Window", tuned_hsv["V_High"])
+        trackbars = [self.low_hue, self.low_saturation, self.low_value,
+                     self.high_hue, self.high_saturation, self.high_value]
+        cv2.namedWindow("Smoothed Image Window", cv2.WINDOW_NORMAL)
+        cv2.namedWindow("HSV Window", cv2.WINDOW_NORMAL)
+        cv2.namedWindow("BG Removed Window", cv2.WINDOW_NORMAL)
+        cv2.namedWindow("Masked Window", cv2.WINDOW_NORMAL)
+        cv2.namedWindow("Contours Window", cv2.WINDOW_NORMAL)
+        cv2.namedWindow("Pen Contour Window", cv2.WINDOW_NORMAL)
+        cv2.namedWindow("Centroid Window", cv2.WINDOW_NORMAL)
+        for tb in trackbars:
+            tb.create()
+        self.windows_opened = True
 
     def has_rgb_camera(self, device) -> bool:
         for s in device.sensors:
@@ -105,9 +241,6 @@ class Pipeline():
     def play(self, file_name, repeat=True):
         self.config.enable_device_from_file(file_name, repeat_playback=repeat)
 
-    def stop(self):
-        self.pipeline.stop()
-
     def get_centroid_pos(self, center):
         if center != None:
             dist_meters = self.df.get_distance(center[0], center[1])
@@ -129,94 +262,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     ############# End_Citation [2] #################
     print(args)
-    tuned_hsv = {'H_Low': 115,
-                 'H_High': 154,
-                 'S_Low': 117,
-                 'S_High': 255,
-                 'V_Low': 60,
-                 'V_High': 255}
-    low_hue = Trackbar("Low Hue", 179, "HSV Window", tuned_hsv["H_Low"])
-    low_saturation = Trackbar("Low Saturation", 255,
-                              "HSV Window", tuned_hsv["S_Low"])
-    low_value = Trackbar("Low Value", 255, "HSV Window", tuned_hsv["V_Low"])
-    high_hue = Trackbar("High Hue", 179, "HSV Window", tuned_hsv["H_High"])
-    high_saturation = Trackbar(
-        "High Saturation", 255, "HSV Window", tuned_hsv["S_High"])
-    high_value = Trackbar("High Value", 255, "HSV Window", tuned_hsv["V_High"])
-    trackbars = [low_hue, low_saturation, low_value,
-                 high_hue, high_saturation, high_value]
-    cv2.namedWindow("Smoothed Image Window", cv2.WINDOW_NORMAL)
-    cv2.namedWindow("HSV Window", cv2.WINDOW_NORMAL)
-    cv2.namedWindow("BG Removed Window", cv2.WINDOW_NORMAL)
-    cv2.namedWindow("Masked Window", cv2.WINDOW_NORMAL)
-    cv2.namedWindow("Contours Window", cv2.WINDOW_NORMAL)
-    cv2.namedWindow("Pen Contour Window", cv2.WINDOW_NORMAL)
-    cv2.namedWindow("Centroid Window", cv2.WINDOW_NORMAL)
-    for tb in trackbars:
-        tb.create()
     pipeline = Pipeline()
-    try:
-        while True:
-            depth_image, color_image = pipeline.get_depth_and_color_images()
-            # Apply bilateral filter to color image to smooth
-            smooth = cv2.bilateralFilter(color_image, 15, 75, 75)
-            cv2.imshow("Smoothed Image Window", smooth)
-            ############# Begin_Citation [3] #################
-            # Convert color image to HSV image and show in new window
-            hsv_image = cv2.cvtColor(smooth, cv2.COLOR_BGR2HSV)
-            test_hsv_mask = cv2.inRange(
-                hsv_image,
-                (low_hue.get(), low_saturation.get(), low_value.get()),
-                (high_hue.get(), high_saturation.get(), high_value.get()),
-            )
-            tuned_hsv_mask = cv2.inRange(
-                hsv_image,
-                (tuned_hsv["H_Low"], tuned_hsv['S_Low'], tuned_hsv['V_Low']),
-                (tuned_hsv["H_High"], tuned_hsv['S_High'],
-                 tuned_hsv['V_High']),
-            )
-            ############# End_Citation [3] #################
-            cv2.imshow("HSV Window", test_hsv_mask)
-            # Cut off the pixels after a certain depth in the color image
-            bg_removed = pipeline.remove_background(depth_image, smooth)
-            cv2.imshow("BG Removed Window", bg_removed)
-            ############# Begin_Citation [4] #################
-            masked_without_bg = cv2.bitwise_and(
-                bg_removed, smooth, mask=test_hsv_mask)
-            masked_with_bg = cv2.bitwise_and(
-                smooth, smooth, mask=test_hsv_mask)
-            ############# End_Citation [4] #################
-            cv2.imshow("Masked Window", masked_with_bg)
-            # Now draw contours on the image and (hopefully) around the pen
-            ############# Begin_Citation [7] #################
-            grayscale = cv2.cvtColor(masked_with_bg, cv2.COLOR_BGR2GRAY)
-            edged = cv2.Canny(grayscale, 30, 200)
-            contours, hierarchy = cv2.findContours(
-                edged, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-            cv2.imshow("Contours Window", edged)
-            cv2.drawContours(masked_with_bg, contours, -1, (0, 255, 0), 3)
-            # Find the contour with the largest area
-            center = None
-            if len(contours) != 0:
-                largest_contour = max(contours, key=cv2.contourArea)
-                x, y, w, h = cv2.boundingRect(largest_contour)
-                cv2.rectangle(masked_with_bg, (x, y),
-                              (x + w, y + h), (0, 255, 0), 2)
-                center = (x + w // 2, y + h // 2)
-            ############# End_Citation [7] #################
-            cv2.imshow("Pen Contour Window", masked_with_bg)
-            if center != None:
-                ############# Begin_Citation [8] #################
-                cv2.circle(smooth, center, 6, (0, 0, 255), -1)
-                ############# End_Citation [8] ##################
-                cv2.imshow("Centroid Window", smooth)
-                pen_pos = pipeline.get_centroid_pos(center)
-                if pen_pos != None:
-                    print(f"Pen Position {pen_pos} m")
-            key = cv2.waitKey(1)
-            # Press esc or 'q' to close the image window
-            if key & 0xFF == ord('q') or key == 27:
-                cv2.destroyAllWindows()
-                break
-    finally:
-        pipeline.stop()
+    pipeline.start()
