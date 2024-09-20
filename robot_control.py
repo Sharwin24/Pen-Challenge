@@ -5,6 +5,8 @@ from enum import Enum
 
 import modern_robotics as mr
 import numpy as np
+import pickle
+import os
 
 
 def example_code():
@@ -32,14 +34,53 @@ class DIRECTION(Enum):
     ROTATE = 4
 
 
+class Calibrator:
+    def __init__(self, file_name=None) -> None:
+        self.points = []
+        self.params = {}
+        if file_name != None:
+            self.load(file_name)
+
+    def add_point(self, p):
+        self.points.append(p)
+
+    def remove_point(self, p):
+        self.points.remove(p)
+
+    def get_points(self):
+        return self.points
+
+    ############# Begin_Citation [9] #############
+    def save(self, file_name):
+        # Write to a file
+        if os.path.exists(file_name):
+            # If the file exists, clear the data
+            print(f"{file_name} already exists, overwriting!")
+            os.remove(file_name)
+        with open(file_name, 'w') as f:
+            pickle.dump([self.points, self.params], f)
+
+    def load(self, file_name):
+        # If file exists, load it
+        if os.path.exists(file_name):
+            with open(file_name, 'rb') as f:
+                self.points, self.params = pickle.load(f)
+        else:
+            print(f"{file_name} does not exist")
+    ############# End_Citation [9] #############
+
+
 class Controller:
 
     def __init__(self) -> None:
         self.robot = InterbotixManipulatorXS("px100", "arm", "gripper")
         robot_startup()
+        self.robot.gripper.set_pressure(0.25)
         self.joint_dict = {}
         self.update_joint_angle_dict()
         self.step_size = 5 / 100  # default is 5 cm, convert to meters
+        self.calibrator = Calibrator()
+        self.calibration_points = []
 
     def update_joint_angle_dict(self):
         angles = self.robot.arm.get_joint_commands()
@@ -60,7 +101,7 @@ class Controller:
             f"\nElbow: {np.rad2deg(self.joint_dict["elbow"]): .2f}\N{DEGREE SIGN}" + \
             f"\nWrist Angle: {np.rad2deg(self.joint_dict["wrist_angle"]):.2f}\N{DEGREE SIGN}" + \
             f"\nEE Position: ({100 * ee_pos[0]:.2f}, {100 * ee_pos[1]:.2f}, {100 * ee_pos[2]:.2f}) cm" + \
-            f"\n[h]ome, [s]leep, [q]uit, [u]p, [d]own, [f]orward, [b]ackward, [st]ep size (meters), [r]otate (deg), [p]oint: "
+            f"\n[h]ome, [s]leep, [q]uit, [u]p, [d]own, [f]orward, [b]ackward, [st]ep size (meters), [r]otate (deg), [p]oint, [c]alibrate, [v]isiting, [re]lease, [g]rasp: "
         cmd = input(cmd_str).lower()
         if cmd == 'q' or cmd == 'quit':
             return False
@@ -89,9 +130,33 @@ class Controller:
         elif cmd == 'p' or cmd == 'point':
             point = input(
                 f"Please input an absolute point [cm] as a tuple of (x,y,z): ")
-            points = point.replace("(", "").replace(")", "").split(",")
-            points = [float(p) / 100 for p in points]
-            self.move_to_point(points)
+            point_tuple = point.replace("(", "").replace(")", "").split(",")
+            point_tuple = [float(p) / 100 for p in point_tuple]
+            self.move_to_point(point_tuple)
+        elif cmd == 'c' or cmd == 'calibrate':
+            self.calibrate()
+        elif cmd == 'v' or cmd == 'visiting':
+            # Visit points and if saving is desired, allow the user to save it
+            visiting = True
+            while visiting:
+                point = input(
+                    f"Please input an absolute point [cm] as a tuple of (x,y,z): ")
+                point_tuple = point.replace(
+                    "(", "").replace(")", "").split(",")
+                point_tuple = [float(p) / 100 for p in point_tuple]
+                self.move_to_point(point_tuple)
+                save = input(
+                    f"Save this point to calibration_sequence? {point_tuple} [y,n]: ").lower()
+                if save == 'y':
+                    print(f"Saving {point_tuple}")
+                    self.calibration_points.append(point_tuple)
+                visiting = input("Continue? [y,n]: ").lower() == 'y'
+                if not visiting:
+                    print(f"Calibration Path: {self.calibration_points}")
+        elif cmd == 're' or cmd == 'release':
+            self.open_gripper()
+        elif cmd == 'g' or cmd == 'grasp':
+            self.close_gripper()
         else:
             print(f"Invalid cmd given: {cmd}")
         self.update_joint_angle_dict()
@@ -136,6 +201,44 @@ class Controller:
         T = mr.FKinSpace(self.robot.arm.robot_des.M,
                          self.robot.arm.robot_des.Slist, joint_positions)
         return mr.TransToRp(T)  # [R, p]
+
+    def calibrate(self):
+        # Calibration Procedure
+        # The script should be run while the robot is holding a pen
+        # The robot should move to a few pre-set positions to gather the necessary data
+        # The script then computes and outputs the calibration parameters
+        # The robot moves to a few test locations and the camera coordinates are converted to the robot coordinates and compared
+        print(f"Starting Calibration Procedure")
+        holding = input(
+            f"Is the robot holding the pen already, if not gripper will open? [y,n]: ")
+        if holding == 'n':
+            self.robot.gripper.release()
+            _ = input(f"Press enter to grab the pen")
+            self.robot.gripper.grasp()
+        calib_file = input(
+            "Enter the file name (*.pkl) for the calibration points to load from\nIf it doesn't exist it will be created at the end of the calibration sequence: ")
+        self.calibrator.load(calib_file)
+        points_to_visit = self.calibrator.get_points()
+        if len(points_to_visit) == 0 and len(self.calibration_points) != 0:
+            # If no points were loaded, and visiting loop was run, use those points
+            print(f"Loading points from visiting loop:" +
+                  f"\n{self.calibration_points}")
+            points_to_visit.extend(self.calibration_points)
+        elif len(points_to_visit) == 0 and len(self.calibration_points) == 0:
+            # If no points at all were provided, use hardcoded points
+            hardcoded_points = [
+                (0.1345, 0.0735, 0.1359),  # home, back 10cm, rotate 30 deg
+                (0.1345, 0.0-735, 0.1359),  # home, back 10cm, rotate -30 deg
+                (0.25, 0, 0.1714),  # home
+                (0.25, 0, 0.1074),  # home, down
+            ]  # m
+            points_to_visit.extend(hardcoded_points)
+        print(f"Points to visit:\n{points_to_visit}")
+        params = self.compute_calibration_parameters(points_to_visit)
+
+    def compute_calibration_parameters(self, robot_points, camera_points):
+        # The passed in points are the list of points (x,y,z) m in the robot and camera frame, respectively
+        pass
 
     def shutdown(self):
         robot_shutdown()

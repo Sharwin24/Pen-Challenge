@@ -131,7 +131,7 @@ if __name__ == '__main__':
     print(args)
     tuned_hsv = {'H_Low': 115,
                  'H_High': 154,
-                 'S_Low': 85,
+                 'S_Low': 117,
                  'S_High': 255,
                  'V_Low': 60,
                  'V_High': 255}
