@@ -26,7 +26,7 @@ class Trackbar():
         return cv2.getTrackbarPos(self.name, self.window_name)
 
 
-class Pipeline():
+class Camera():
     def __init__(self, clip_dist: float = 1) -> None:
         self.pipeline = rs.pipeline()
         self.config = rs.config()
@@ -90,7 +90,7 @@ class Pipeline():
         self.pen_pos = pen_pos
 
     def get_pen_pos(self):
-        return self.pen_pos
+        return np.array(self.pen_pos)
 
     def run_image_pipeline(self):
         # Get depth and color images
@@ -262,5 +262,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     ############# End_Citation [2] #################
     print(args)
-    pipeline = Pipeline()
+    pipeline = Camera()
     pipeline.start()
